@@ -41,7 +41,6 @@ def compute_loss(model, x, a, d, label):
     return tf.reduce_mean(loss_sum)
 
 def calculate_auc(model, test_x, test_d, test_y, config):
-
     x, a, d, y = pad_matrix(test_x, test_d, test_y, config)
     
     print("calculate AUC...")
