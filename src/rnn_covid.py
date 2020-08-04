@@ -24,30 +24,14 @@ class RNN(tf.keras.Model):
     def loadParams(self, pretrained_emb):
         print("use pre-trained embeddings...")
         self.embeddings = tf.Variable(pretrained_emb)
-        
-    def visit_fn(self, x):
-        return self.visit_activation(tf.matmul(x, self.embeddings))
-            
-    def gru_fn(self, x):
-        visit_rep = self.visit_fn(x)
-        masked_x = self.masking_layer(visit_rep)
-        sequences, h = self.gru(masked_x)
-        return h # n_patients x emb_dim
-    
-    def predict_fn(self, h, a, d):
-        """
-        --h: final output vector from gru
-        --a: admission information
-        --d: demographic information
-        """
-        admission_rep = self.visit_fn(a)
-        c = self.mlp1(self.concatenation([h, admission_rep]))
-        prediction = self.mlp2(self.concatenation([c, d]))
-        return prediction
     
     def call(self, x, a, d):
-        h = self.gru_fn(x)
-        return self.predict_fn(h, a, d)
+        a = self.visit_activation(tf.matmul(a, self.embeddings))
+        x = self.visit_activation(tf.matmul(x, self.embeddings))
+        x = self.masking_layer(x)
+        sequences, x = self.gru(x)
+        c = self.mlp1(self.concatenation([x, a]))
+        return self.mlp2(self.concatenation([c, d]))
 
 @tf.function
 def compute_loss(model, x, a, d, label):
@@ -63,9 +47,34 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     print("calculate AUC...")
     return model(x, a, d)
 
-def restore_rnn(input_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, mlp_units, 
+def restore_rnn(weights_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, mlp_units, 
               input_vocabsize, demo_vocabsize, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
-    return None
+
+    config = locals().copy()
+
+    print("build and initialize model for restoring trained weights...")
+    rnn_model = RNN(config)
+    if pretrained_embedding != None:
+        rnn_model.loadParams(pretrained_embedding)
+    else:
+        rnn_model.initParams(config)
+
+    recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
+    batch_x = recs[0:batch_size]
+    batch_d = demos[0:batch_size]
+    batch_y = labels[0:batch_size]
+    x, a, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+
+    with tf.GradientTape() as tape:
+        batch_cost = compute_loss(rnn_model, x, a, d, y)
+        gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
+        rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
+    
+    print("load and set trained weights...")
+    trained_weights = pickle.load(open(weights_path, 'rb'))
+    rnn_model.set_weights(trained_weights)
+
+    return rnn_model
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, mlp_units, 
               input_vocabsize, demo_vocabsize, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
@@ -108,10 +117,40 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch, l=np.mean(loss_record)))
     
-    print(calculate_auc(rnn_model, test_x, test_d, test_y, config))
+    return rnn_model
         #current_auc = calculate_auc()
         # print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch, l=current_auc))
         #if current_auc > best_auc: 
         #    best_auc = current_auc
         #    best_epoch = epoch
         #    best_model = rnn_model.weights()
+
+def load_data(patient_record_path, demo_record_path, labels_path):
+    patient_record = pickle.load(open(patient_record_path, 'rb'))
+    demo_record = pickle.load(open(demo_record_path, 'rb'))
+    labels = pickle.load(open(labels_path, 'rb'))
+    
+    return patient_record, demo_record, labels
+
+def pad_matrix(records, demos, labels, config):
+    n_patients = len(records)
+    lengths = np.array([len(rec) for rec in records]) - 1
+    max_len = np.max(lengths)
+    input_vocabsize = config["input_vocabsize"]
+    demo_vocabsize = config["demo_vocabsize"]
+
+    x = np.zeros((n_patients, max_len, input_vocabsize)).astype(np.float32)
+    a = np.zeros((n_patients, input_vocabsize)).astype(np.float32)
+    d = np.zeros((n_patients, demo_vocabsize)).astype(np.float32)
+    y = np.array(labels).astype(np.float32)
+    
+    for idx, rec in enumerate(records):
+        for xvec, visit in zip(x[idx,: ,: ], rec[:-1]):
+            xvec[visit] = 1.
+            
+        a[idx,rec[-1]] = 1.
+        
+    for idx, demo in enumerate(demos):
+        d[idx, demo] = 1.
+        
+    return x, a, d, y
