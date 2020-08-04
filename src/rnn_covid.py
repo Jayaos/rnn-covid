@@ -41,10 +41,12 @@ def compute_loss(model, x, a, d, label):
     return tf.reduce_mean(loss_sum)
 
 def calculate_auc(model, test_x, test_d, test_y, config):
+    AUC = tf.keras.metrics.AUC(num_thresholds=3)
     x, a, d, y = pad_matrix(test_x, test_d, test_y, config)
-    
-    print("calculate AUC...")
-    return model(x, a, d)
+    pred = model(x, a, d)
+    AUC.update_state(y, pred)
+
+    return AUC.result().numpy()
 
 def restore_rnn(weights_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, mlp_units, 
               input_vocabsize, demo_vocabsize, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
@@ -94,6 +96,8 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
     num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
     
     best_auc = 0
+    best_epoch = 0
+    best_model = None
     print("start training...")
     for epoch in range(epochs):
         loss_record = []
@@ -116,13 +120,15 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch, l=np.mean(loss_record)))
     
-    return rnn_model
-        #current_auc = calculate_auc()
-        # print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch, l=current_auc))
-        #if current_auc > best_auc: 
-        #    best_auc = current_auc
-        #    best_epoch = epoch
-        #    best_model = rnn_model.weights()
+        current_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
+        print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch, l=current_auc))
+        if current_auc > best_auc: 
+            best_auc = current_auc
+            best_epoch = epoch
+            best_model = rnn_model.get_weights()
+
+    print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+    return rnn_model # return trained model
 
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))
