@@ -12,7 +12,7 @@ class RNN(tf.keras.Model):
         
         self.visit_activation = tf.keras.layers.Activation("tanh", name="visit_activation")
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
-        self.gru = tf.keras.layers.GRU(units=config["gru_units"], return_sequences=True, return_state=True, name="gru")
+        self.gru = tf.keras.layers.GRU(units=config["gru_units"], dropout=0.2, return_sequences=True, return_state=True, name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
         self.mlp1 = tf.keras.layers.Dense(config["mlp_units"], activation=tf.keras.activations.tanh, name="mlp1")
         self.mlp2 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp2")
@@ -35,7 +35,7 @@ class RNN(tf.keras.Model):
 
 @tf.function
 def compute_loss(model, x, a, d, label):
-    prediction = model(x, a, d)
+    prediction = model(x, a, d, training=True)
     loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
                                   tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
     return tf.reduce_mean(loss_sum)
