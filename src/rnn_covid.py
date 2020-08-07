@@ -156,6 +156,7 @@ def pad_matrix(records, demos, labels, config):
         a[idx,rec[-1]] = 1.
         
     for idx, demo in enumerate(demos):
-        d[idx, demo] = 1.
+        d[idx, demo[:-1]] = 1. # the last element of demos is age 
+        d[idx, -1] = demo[-1]
         
     return x, a, d, y
