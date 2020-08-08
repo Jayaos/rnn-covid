@@ -8,20 +8,24 @@ class GloVe(tf.keras.Model):
     def __init__(self, config):
         super(GloVe, self).__init__()
         self.final_embeddings = None
+        self.vocab_size = config["vocab_size"]
+        self.max_vocab_size = config["max_vocab_size"]
+        self.embedding_dim = config["embedding_dim"]
+        self.scaling_factor = config["scaling_factor"]
         self.optimizer = tf.keras.optimizers.Adagrad(config["learning_rate"])
 
-    def initParams(self, config):
+    def initParams(self):
         with tf.device("/cpu:0"):
             """must be implemented with cpu-only env since this is sparse updating"""
-            self.target_embeddings = tf.Variable(tf.random.uniform([config["vocab_size"], 
-            config["embedding_dim"]], 0.1, -0.1),
+            self.target_embeddings = tf.Variable(tf.random.uniform([self.vocab_size, 
+            self.embedding_dim], 0.1, -0.1),
                                                  name="target_embeddings")
-            self.context_embeddings = tf.Variable(tf.random.uniform([config["vocab_size"], 
-            config["embedding_dim"]], 0.1, -0.1),
+            self.context_embeddings = tf.Variable(tf.random.uniform([self.vocab_size, 
+            self.embedding_dim], 0.1, -0.1),
                                                   name="context_embeddings")
-            self.target_biases = tf.Variable(tf.random.uniform([config["vocab_size"]], 0.1, -0.1),
+            self.target_biases = tf.Variable(tf.random.uniform([self.vocab_size], 0.1, -0.1),
                                              name='target_biases')
-            self.context_biases = tf.Variable(tf.random.uniform([config["vocab_size"]], 0.1, -0.1),
+            self.context_biases = tf.Variable(tf.random.uniform([self.vocab_size], 0.1, -0.1),
                                               name="context_biases")
     def sumEmbeddings(self):
         self.final_embeddings = self.target_embeddings + self.context_embeddings
@@ -37,7 +41,7 @@ def train_glove(output_path, patient_record_path, concept2id_path, epochs, batch
 
     print("build and initialize model...")
     glove = GloVe(config)
-    glove.initParams(config)
+    glove.initParams()
 
     print("build co-occurrence matrix...")
     comatrix = build_comatrix(recs, concept2id)
@@ -46,11 +50,12 @@ def train_glove(output_path, patient_record_path, concept2id_path, epochs, batch
     i_ids, j_ids, co_occurrence = prepare_trainingset(comatrix)
     num_batches = int(np.ceil(len(i_ids) / batch_size))
 
+    print("start training...")
     for epoch in range(epochs):
         cost_record = []
         progbar = tf.keras.utils.Progbar(num_batches)
 
-        for i in random.sample(range(total_batch), total_batch): # shuffling the data 
+        for i in random.sample(range(num_batches), num_batches): # shuffling the data 
             i_batch = i_ids[i * batch_size : (i+1) * batch_size]
             j_batch = j_ids[i * batch_size : (i+1) * batch_size]
             co_occurrence_batch = co_occurrence[i * batch_size : (i+1) * batch_size]
@@ -73,23 +78,25 @@ def train_glove(output_path, patient_record_path, concept2id_path, epochs, batch
 
 def compute_cost(model, i_ids, j_ids, co_occurrence, use_gpu=True):
     if use_gpu:
-        with tf.device("/gpu:0"):
+        device_setting = "/gpu:0"
     else:
-        with tf.device("/cpu:0"):
-            """x = [target_ind, context_ind, co_occurrence_count]"""
-            target_emb = tf.nn.embedding_lookup([model.target_embeddings], i_ids)
-            context_emb = tf.nn.embedding_lookup([model.context_embeddings], j_ids)
-            target_bias = tf.nn.embedding_lookup([model.target_biases], i_ids)
-            context_bias = tf.nn.embedding_lookup([model.context_biases], j_ids)
+        device_setting = "/cpu:0"
 
-            weight = tf.math.minimum(1.0, tf.math.pow(tf.math.truediv(co_occurrence, tf.cast(model.max_vocab_size, dtype=tf.float32)),
-            model.scaling_factor))
+    with tf.device(device_setting):
+        """x = [target_ind, context_ind, co_occurrence_count]"""
+        target_emb = tf.nn.embedding_lookup([model.target_embeddings], i_ids)
+        context_emb = tf.nn.embedding_lookup([model.context_embeddings], j_ids)
+        target_bias = tf.nn.embedding_lookup([model.target_biases], i_ids)
+        context_bias = tf.nn.embedding_lookup([model.context_biases], j_ids)
+
+        weight = tf.math.minimum(1.0, tf.math.pow(tf.math.truediv(co_occurrence, tf.cast(model.max_vocab_size, dtype=tf.float32)),
+        model.scaling_factor))
         
-            emb_product = tf.math.reduce_sum(tf.math.multiply(target_emb, context_emb), axis=1)
-            log_cooccurrence = tf.math.log(tf.add(tf.cast(co_occurrence, dtype=tf.float32), 1))
+        emb_product = tf.math.reduce_sum(tf.math.multiply(target_emb, context_emb), axis=1)
+        log_cooccurrence = tf.math.log(tf.add(tf.cast(co_occurrence, dtype=tf.float32), 1))
         
-            distance_cost = tf.math.square(
-                tf.math.add_n([emb_product, target_bias, context_bias, tf.math.negative(log_cooccurrence)]))
+        distance_cost = tf.math.square(
+            tf.math.add_n([emb_product, target_bias, context_bias, tf.math.negative(log_cooccurrence)]))
           
     return tf.math.reduce_sum(tf.multiply(weight, distance_cost))
 
@@ -105,7 +112,7 @@ def build_comatrix(records, concept2id):
             for p in record:
                 for k in record:
                     if p != k:
-                        self.comatrix[p, k] += 1.
+                        comatrix[p, k] += 1.
     return comatrix
 
 def prepare_trainingset(comatrix):
