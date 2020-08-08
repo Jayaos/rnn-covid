@@ -41,7 +41,7 @@ def compute_loss(model, x, a, d, label):
     return tf.reduce_mean(loss_sum)
 
 def calculate_auc(model, test_x, test_d, test_y, config):
-    AUC = tf.keras.metrics.AUC(num_thresholds=3)
+    AUC = tf.keras.metrics.AUC(num_thresholds=200)
     x, a, d, y = pad_matrix(test_x, test_d, test_y, config)
     pred = model(x, a, d)
     AUC.update_state(y, pred)
@@ -118,10 +118,9 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
             loss_record.append(batch_cost.numpy())
             progbar.add(1)
         
-        print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch, l=np.mean(loss_record)))
-    
+        print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
         current_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
-        print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch, l=current_auc))
+        print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
             best_epoch = epoch
