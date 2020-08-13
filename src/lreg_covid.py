@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import pickle
 import random
+import os
 from sklearn.model_selection import train_test_split
 
 class LogisticRegression(tf.keras.Model):
@@ -11,7 +12,7 @@ class LogisticRegression(tf.keras.Model):
 
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
         self.mlp = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp",
-        kernel_regularizer=tf.keras.regularizers.L2(l2=0.001))
+        kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
         
     def call(self, x, d):
         return self.mlp(self.concatenation([x, d]))
@@ -70,9 +71,7 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             best_model = lr_model.get_weights()
 
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
-    return lr_model # return trained model
 
-@tf.function
 def compute_loss(model, x, d, label):
     prediction = model(x, d)
     loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
@@ -94,7 +93,7 @@ def pad_matrix(records, demos, labels, config):
             x[idx, visit] += 1
         
     for idx, demo in enumerate(demos):
-        d[idx, demo[:-1]] = 1. # the last element of demos is age 
+        d[idx, int(demo[:-1])] = 1. # the last element of demos is age 
         d[idx, -1] = demo[-1]
         
     return x, d, y
@@ -105,3 +104,78 @@ def load_data(patient_record_path, demo_record_path, labels_path):
     labels = pickle.load(open(labels_path, 'rb'))
     
     return patient_record, demo_record, labels
+
+def shuffle_data(data1, data2, data3):
+    data1, data2, data3 = np.array(data1), np.array(data2), np.array(data3)
+    idx = np.arange(len(data1))
+    random.shuffle(idx)
+
+    return data1[idx], data2[idx], data3[idx]
+
+def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
+                input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, k=5):
+    k_fold_auc = []
+
+    config = locals().copy()
+
+    print("load data...")
+    recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
+
+    print("split the dataset into k-fold...")
+    recs, demos, labels = shuffle_data(recs, demos, labels)
+    chunk_size = int(np.floor(len(labels) / k))
+    np.split(np.arange(len(labels)), [chunk_size*i for i in range(k)])
+    folds = np.tile(np.split(np.arange(len(labels)), [chunk_size*i for i in range(int(k))])[1:], 2)
+
+    for i in range(k):
+        train_x, valid_x, test_x = recs[np.concatenate(folds[(i%k):(i%k)+k-2])], recs[folds[(i%k)+k-1]], recs[folds[(i%k)+k]]
+        train_d, valid_d, test_d = demos[np.concatenate(folds[(i%k):(i%k)+k-2])], demos[folds[(i%k)+k-1]], demos[folds[(i%k)+k]]
+        train_y, valid_y, test_y = labels[np.concatenate(folds[(i%k):(i%k)+k-2])], labels[folds[(i%k)+k-1]], labels[folds[(i%k)+k]]
+
+        num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
+
+        print("build and initialize model...")
+        lr_model = LogisticRegression(config)
+    
+        best_auc = 0
+        best_epoch = 0
+        best_model = None
+        print("start training...")
+        for epoch in range(max_epoch):
+            loss_record = []
+            progbar = tf.keras.utils.Progbar(num_batches)
+        
+            for t in random.sample(range(num_batches), num_batches):
+                batch_x = train_x[t * batch_size:(t+1) * batch_size]
+                batch_d = train_d[t * batch_size:(t+1) * batch_size]
+                batch_y = train_y[t * batch_size:(t+1) * batch_size]
+            
+                x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+                x = tf.math.l2_normalize(x)
+            
+                with tf.GradientTape() as tape:
+                    batch_cost = compute_loss(lr_model, x, d, y)
+                    gradients = tape.gradient(batch_cost, lr_model.trainable_variables)
+                    lr_model.optimizer.apply_gradients(zip(gradients, lr_model.trainable_variables))
+                
+                loss_record.append(batch_cost.numpy())
+                progbar.add(1)
+        
+            print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
+            current_auc = calculate_auc(lr_model, valid_x, valid_d, valid_y, config)
+            print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
+            if current_auc > best_auc: 
+                best_auc = current_auc
+                best_epoch = epoch
+                best_model = lr_model.get_weights()
+
+        print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+
+        print("calculate AUC on the best model using the test set")
+        lr_model.set_weights(best_model)
+        test_auc = calculate_auc(lr_model, test_x, test_d, test_y, config)
+        print("test auc of {k} fold: {auc:.6f}".format(k=i, auc=test_auc))
+        k_fold_auc.append(test_auc)
+
+    print("save k-fold results...")
+    np.save(os.path.join(output_path, "logistic_reg_{k}_fold_auc.npy".format(k=k)), k_fold_auc)
