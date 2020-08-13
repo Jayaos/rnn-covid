@@ -10,7 +10,8 @@ class LogisticRegression(tf.keras.Model):
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
 
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
-        self.mlp = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp")
+        self.mlp = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=0.001))
         
     def call(self, x, d):
         return self.mlp(self.concatenation([x, d]))
@@ -50,6 +51,7 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             batch_y = train_y[i * batch_size:(i+1) * batch_size]
             
             x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+            x = tf.math.l2_normalize(x)
             
             with tf.GradientTape() as tape:
                 batch_cost = compute_loss(lr_model, x, d, y)
