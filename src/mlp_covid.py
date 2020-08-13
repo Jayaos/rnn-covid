@@ -76,7 +76,6 @@ def train_MLP(output_path, patient_record_path, demo_record_path, labels_path, e
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
     return MLP_model # return trained model
 
-@tf.function
 def compute_loss(model, x, d, label):
     prediction = model(x, d)
     loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
@@ -118,7 +117,7 @@ def shuffle_data(data1, data2, data3):
     return data1[idx], data2[idx], data3[idx]
 
 def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
-                input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, k=5):
+                input_vocabsize, demo_vocabsize, hidden_units=512, l2_reg=0.001, learning_rate=0.001, k=5):
     k_fold_auc = []
 
     config = locals().copy()
