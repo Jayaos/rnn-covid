@@ -14,7 +14,9 @@ class RNN(tf.keras.Model):
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
         self.gru = tf.keras.layers.GRU(units=config["gru_units"], dropout=0.5, return_sequences=True, return_state=True, name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
-        self.mlp1 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp1", 
+        self.mlp1 = tf.keras.layers.Dense(config["hidden_units"], activation=tf.keras.activations.tanh, name="mlp1", 
+        kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
+        self.mlp2 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp2", 
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
         
     def initParams(self, config):
@@ -29,7 +31,8 @@ class RNN(tf.keras.Model):
         x = tf.matmul(x, self.embeddings)
         x = self.masking_layer(x)
         sequences, x = self.gru(x)
-        return self.mlp1(self.concatenation([x, d]))
+        x = self.mlp1(self.concatenation([x, d]))
+        return self.mlp2(x)
 
 def compute_loss(model, x, d, label):
     prediction = model(x, d, training=True)
@@ -45,7 +48,7 @@ def calculate_auc(model, test_x, test_d, test_y, config):
 
     return AUC.result().numpy()
 
-def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, mlp_units, 
+def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, 
               input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
     
     config = locals().copy()
@@ -132,8 +135,8 @@ def shuffle_data(data1, data2, data3):
 
     return data1[idx], data2[idx], data3[idx]
 
-def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, mlp_units, 
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, k=5, pretrained_embedding=None):
+def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, hidden_units,
+              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, embedding_dim=256, k=5, pretrained_embedding=None):
     k_fold_auc = []
 
     config = locals().copy()
