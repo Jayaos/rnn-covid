@@ -19,7 +19,8 @@ class RNN(tf.keras.Model):
         
     def initParams(self, config):
         print("use randomly initialzed value...")
-        self.embeddings = tf.Variable(tf.random.uniform([config["input_vocabsize"], config["embedding_dim"]], 0.1, -0.1))
+        initializer = tf.keras.initializers.GlorotUniform()
+        self.embeddings = tf.Variable(initializer(shape=(config["input_vocabsize"], config["embedding_dim"])))
         
     def loadParams(self, pretrained_emb):
         print("use pre-trained embeddings...")
@@ -39,6 +40,7 @@ def compute_loss(model, x, d, label):
 
 def calculate_auc(model, test_x, test_d, test_y, config):
     AUC = tf.keras.metrics.AUC(num_thresholds=200)
+    AUC.reset_states()
     x, d, y = pad_matrix(test_x, test_d, test_y, config)
     pred = model(x, d)
     AUC.update_state(y, pred)
@@ -132,8 +134,8 @@ def shuffle_data(data1, data2, data3):
 
     return data1[idx], data2[idx], data3[idx]
 
-def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, mlp_units, 
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, k=5, pretrained_embedding=None):
+def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, 
+              input_vocabsize, demo_vocabsize, embedding_dim, l2_reg=0.01, learning_rate=0.001, k=5, pretrained_embedding=None):
     k_fold_auc = []
 
     config = locals().copy()

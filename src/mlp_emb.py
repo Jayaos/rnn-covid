@@ -5,32 +5,53 @@ import random
 import os
 from sklearn.model_selection import train_test_split
 
-class LogisticRegression(tf.keras.Model):
+class MLP(tf.keras.Model):
     def __init__(self, config):
-        super(LogisticRegression, self).__init__()
+        super(MLP, self).__init__()
+        self.embeddings = None
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
 
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
-        self.mlp = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp",
+        self.mlp1 = tf.keras.layers.Dense(config["hidden_units"], activation=tf.keras.activations.tanh, name="mlp1",
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
+        self.mlp2 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp2",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
+
+    def initParams(self, config):
+        print("use randomly initialzed value...")
+        initializer = tf.keras.initializers.GlorotUniform()
+        self.embeddings = tf.Variable(initializer(shape=(config["input_vocabsize"], config["embedding_dim"])))
+        
+    def loadParams(self, pretrained_emb):
+        print("use pre-trained embeddings...")
+        self.embeddings = tf.Variable(pretrained_emb)
         
     def call(self, x, d):
-        return self.mlp(self.concatenation([x, d]))
+        x = tf.matmul(x, self.embeddings)
+        x = tf.math.l2_normalize(x)
+        x = self.mlp1(self.concatenation([x, d]))
+        return self.mlp2(x)
 
 def calculate_auc(model, test_x, test_d, test_y, config):
     AUC = tf.keras.metrics.AUC(num_thresholds=200)
+    AUC.reset_states()
     x, d, y = pad_matrix(test_x, test_d, test_y, config)
     pred = model(x, d)
     AUC.update_state(y, pred)
 
     return AUC.result().numpy()
 
-def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, learning_rate=0.001):
+def train_MLP(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, hidden_units=1000, l2_reg=0.001, learning_rate=0.001, pretrained_embedding=None):
     
     config = locals().copy()
     
-    print("build model...")
-    lr_model = LogisticRegression(config)
+    print("build and initialize model...")
+    mlp_model = MLP(config)
+    if pretrained_embedding != None:
+        pretrained_embedding = np.load(pretrained_embedding)
+        mlp_model.loadParams(pretrained_embedding)
+    else:
+        mlp_model.initParams(config)
 
     print("load data...")
     recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
@@ -55,20 +76,20 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             x = tf.math.l2_normalize(x)
             
             with tf.GradientTape() as tape:
-                batch_cost = compute_loss(lr_model, x, d, y)
-                gradients = tape.gradient(batch_cost, lr_model.trainable_variables)
-                lr_model.optimizer.apply_gradients(zip(gradients, lr_model.trainable_variables))
+                batch_cost = compute_loss(mlp_model, x, d, y)
+                gradients = tape.gradient(batch_cost, mlp_model.trainable_variables)
+                mlp_model.optimizer.apply_gradients(zip(gradients, mlp_model.trainable_variables))
                 
             loss_record.append(batch_cost.numpy())
             progbar.add(1)
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(lr_model, test_x, test_d, test_y, config)
+        current_auc = calculate_auc(mlp_model, test_x, test_d, test_y, config)
         print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
             best_epoch = epoch
-            best_model = lr_model.get_weights()
+            best_model = mlp_model.get_weights()
 
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
 
@@ -113,7 +134,7 @@ def shuffle_data(data1, data2, data3):
     return data1[idx], data2[idx], data3[idx]
 
 def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
-                input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, k=5):
+                input_vocabsize, demo_vocabsize, embedding_dim, hidden_units=512, l2_reg=0.001, learning_rate=0.001, k=5, pretrained_embedding=None):
     k_fold_auc = []
 
     config = locals().copy()
@@ -135,7 +156,12 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
         num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
 
         print("build and initialize model...")
-        lr_model = LogisticRegression(config)
+        mlp_model = MLP(config)
+        if pretrained_embedding != None:
+            pretrained_embedding = np.load(pretrained_embedding)
+            mlp_model.loadParams(pretrained_embedding)
+        else:
+            mlp_model.initParams(config)
     
         best_auc = 0
         best_epoch = 0
@@ -151,31 +177,30 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
                 batch_y = train_y[t * batch_size:(t+1) * batch_size]
             
                 x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
-                x = tf.math.l2_normalize(x)
             
                 with tf.GradientTape() as tape:
-                    batch_cost = compute_loss(lr_model, x, d, y)
-                    gradients = tape.gradient(batch_cost, lr_model.trainable_variables)
-                    lr_model.optimizer.apply_gradients(zip(gradients, lr_model.trainable_variables))
+                    batch_cost = compute_loss(mlp_model, x, d, y)
+                    gradients = tape.gradient(batch_cost, mlp_model.trainable_variables)
+                    mlp_model.optimizer.apply_gradients(zip(gradients, mlp_model.trainable_variables))
                 
                 loss_record.append(batch_cost.numpy())
                 progbar.add(1)
         
             print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-            current_auc = calculate_auc(lr_model, valid_x, valid_d, valid_y, config)
+            current_auc = calculate_auc(mlp_model, valid_x, valid_d, valid_y, config)
             print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
             if current_auc > best_auc: 
                 best_auc = current_auc
                 best_epoch = epoch
-                best_model = lr_model.get_weights()
+                best_model = mlp_model.get_weights()
 
         print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
 
         print("calculate AUC on the best model using the test set")
-        lr_model.set_weights(best_model)
-        test_auc = calculate_auc(lr_model, test_x, test_d, test_y, config)
+        mlp_model.set_weights(best_model)
+        test_auc = calculate_auc(mlp_model, test_x, test_d, test_y, config)
         print("test auc of {k} fold: {auc:.6f}".format(k=i, auc=test_auc))
         k_fold_auc.append(test_auc)
 
     print("save k-fold results...")
-    np.save(os.path.join(output_path, "logistic_reg_{k}_fold_auc.npy".format(k=k)), k_fold_auc)
+    np.save(os.path.join(output_path, "MLP_{k}_fold_auc.npy".format(k=k)), k_fold_auc)

@@ -5,64 +5,38 @@ import random
 import os
 from sklearn.model_selection import train_test_split
 
-class RNN(tf.keras.Model):
+class MLP(tf.keras.Model):
     def __init__(self, config):
-        super(RNN, self).__init__()
-        self.embeddings = None
+        super(MLP, self).__init__()
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
-        
-        self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
-        self.gru = tf.keras.layers.GRU(units=config["gru_units"], dropout=0.5, return_sequences=True, return_state=True, name="gru")
+
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
-        self.mlp1 = tf.keras.layers.Dense(config["hidden_units"], activation=tf.keras.activations.tanh, name="mlp1", 
+        self.mlp1 = tf.keras.layers.Dense(config["hidden_units"], activation=tf.keras.activations.tanh, name="mlp1",
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
-        self.mlp2 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp2", 
+        self.mlp2 = tf.keras.layers.Dense(1, activation=tf.keras.activations.sigmoid, name="mlp2",
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
-        
-    def initParams(self, config):
-        print("use randomly initialzed value...")
-        initializer = tf.keras.initializers.GlorotNormal()
-        self.embeddings = tf.Variable(initializer(shape=(config["input_vocabsize"], config["embedding_dim"])))
-      
-    def loadParams(self, pretrained_emb):
-        print("use pre-trained embeddings...")
-        self.embeddings = tf.Variable(pretrained_emb)
-    
+
     def call(self, x, d):
-        x = tf.matmul(x, self.embeddings)
-        x = self.masking_layer(x)
-        sequences, x = self.gru(x)
         x = self.mlp1(self.concatenation([x, d]))
         return self.mlp2(x)
-
-def compute_loss(model, x, d, label):
-    prediction = model(x, d, training=True)
-    loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
-                                  tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
-    return tf.reduce_mean(loss_sum)
 
 def calculate_auc(model, test_x, test_d, test_y, config):
     AUC = tf.keras.metrics.AUC(num_thresholds=200)
     AUC.reset_states()
     x, d, y = pad_matrix(test_x, test_d, test_y, config)
+    x = tf.math.l2_normalize(x)
     pred = model(x, d)
     AUC.update_state(y, pred)
 
     return AUC.result().numpy()
 
-def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, 
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
+def train_MLP(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, hidden_units=1000, l2_reg=0.001, learning_rate=0.001):
     
     config = locals().copy()
     
-    print("build and initialize model...")
-    rnn_model = RNN(config)
-    if pretrained_embedding != None:
-        pretrained_embedding = np.load(pretrained_embedding)
-        rnn_model.loadParams(pretrained_embedding)
-    else:
-        rnn_model.initParams(config)
-    
+    print("build model...")
+    mlp_model = MLP(config)
+
     print("load data...")
     recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
     train_x, test_x, train_d, test_d, train_y, test_y = train_test_split(recs, demos, labels, test_size=0.2)
@@ -83,24 +57,51 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
             batch_y = train_y[i * batch_size:(i+1) * batch_size]
             
             x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+            x = tf.math.l2_normalize(x)
             
             with tf.GradientTape() as tape:
-                batch_cost = compute_loss(rnn_model, x, d, y)
-                gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
-                rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
+                batch_cost = compute_loss(mlp_model, x, d, y)
+                gradients = tape.gradient(batch_cost, mlp_model.trainable_variables)
+                mlp_model.optimizer.apply_gradients(zip(gradients, mlp_model.trainable_variables))
                 
             loss_record.append(batch_cost.numpy())
             progbar.add(1)
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
+        current_auc = calculate_auc(mlp_model, test_x, test_d, test_y, config)
         print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
             best_epoch = epoch
-            best_model = rnn_model.get_weights()
+            best_model = mlp_model.get_weights()
 
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+
+def compute_loss(model, x, d, label):
+    prediction = model(x, d)
+    loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
+                                  tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
+    return tf.reduce_mean(loss_sum)
+
+def pad_matrix(records, demos, labels, config):
+    n_patients = len(records)
+    lengths = np.array([len(rec) for rec in records]) - 1
+    input_vocabsize = config["input_vocabsize"]
+    demo_vocabsize = config["demo_vocabsize"]
+
+    x = np.zeros((n_patients, input_vocabsize)).astype(np.float32)
+    d = np.zeros((n_patients, demo_vocabsize)).astype(np.float32)
+    y = np.array(labels).astype(np.float32)
+    
+    for idx, rec in enumerate(records):
+        for visit in rec:
+            x[idx, visit] += 1
+        
+    for idx, demo in enumerate(demos):
+        d[idx, int(demo[:-1])] = 1. # the last element of demos is age 
+        d[idx, -1] = demo[-1]
+        
+    return x, d, y
 
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))
@@ -109,27 +110,6 @@ def load_data(patient_record_path, demo_record_path, labels_path):
     
     return patient_record, demo_record, labels
 
-def pad_matrix(records, demos, labels, config):
-    n_patients = len(records)
-    lengths = np.array([len(rec) for rec in records])
-    max_len = np.max(lengths)
-    input_vocabsize = config["input_vocabsize"]
-    demo_vocabsize = config["demo_vocabsize"]
-
-    x = np.zeros((n_patients, max_len, input_vocabsize)).astype(np.float32)
-    d = np.zeros((n_patients, demo_vocabsize)).astype(np.float32)
-    y = np.array(labels).astype(np.float32)
-    
-    for idx, rec in enumerate(records):
-        for xvec, visit in zip(x[idx,: ,: ], rec[:]):
-            xvec[visit] = 1.
-        
-    for idx, demo in enumerate(demos):
-        d[idx, int(demo[:-1])] = 1. # the last element of demos is age 
-        d[idx, -1] = demo[-1]
-        
-    return x, d, y
-
 def shuffle_data(data1, data2, data3):
     data1, data2, data3 = np.array(data1), np.array(data2), np.array(data3)
     idx = np.arange(len(data1))
@@ -137,8 +117,8 @@ def shuffle_data(data1, data2, data3):
 
     return data1[idx], data2[idx], data3[idx]
 
-def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, hidden_units,
-              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, embedding_dim=256, k=5, pretrained_embedding=None):
+def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
+                input_vocabsize, demo_vocabsize, hidden_units=512, l2_reg=0.001, learning_rate=0.001, k=5):
     k_fold_auc = []
 
     config = locals().copy()
@@ -160,12 +140,7 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
         num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
 
         print("build and initialize model...")
-        rnn_model = RNN(config)
-        if pretrained_embedding != None:
-            loaded_embedding = np.load(pretrained_embedding)
-            rnn_model.loadParams(loaded_embedding)
-        else:
-            rnn_model.initParams(config)
+        mlp_model = MLP(config)
     
         best_auc = 0
         best_epoch = 0
@@ -181,30 +156,31 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
                 batch_y = train_y[t * batch_size:(t+1) * batch_size]
             
                 x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+                x = tf.math.l2_normalize(x)
             
                 with tf.GradientTape() as tape:
-                    batch_cost = compute_loss(rnn_model, x, d, y)
-                    gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
-                    rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
+                    batch_cost = compute_loss(mlp_model, x, d, y)
+                    gradients = tape.gradient(batch_cost, mlp_model.trainable_variables)
+                    mlp_model.optimizer.apply_gradients(zip(gradients, mlp_model.trainable_variables))
                 
                 loss_record.append(batch_cost.numpy())
                 progbar.add(1)
         
             print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-            current_auc = calculate_auc(rnn_model, valid_x, valid_d, valid_y, config)
+            current_auc = calculate_auc(mlp_model, valid_x, valid_d, valid_y, config)
             print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
             if current_auc > best_auc: 
                 best_auc = current_auc
                 best_epoch = epoch
-                best_model = rnn_model.get_weights()
+                best_model = mlp_model.get_weights()
 
         print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
 
         print("calculate AUC on the best model using the test set")
-        rnn_model.set_weights(best_model)
-        test_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
+        mlp_model.set_weights(best_model)
+        test_auc = calculate_auc(mlp_model, test_x, test_d, test_y, config)
         print("test auc of {k} fold: {auc:.6f}".format(k=i, auc=test_auc))
         k_fold_auc.append(test_auc)
 
     print("save k-fold results...")
-    np.save(os.path.join(output_path, "{k}_fold_auc.npy".format(k=k)), k_fold_auc)
+    np.save(os.path.join(output_path, "MLP_{k}_fold_auc.npy".format(k=k)), k_fold_auc)
