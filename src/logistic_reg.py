@@ -15,20 +15,20 @@ class LogisticRegression(tf.keras.Model):
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
         
     def call(self, x, d):
+        x = tf.math.l2_normalize(x)
         return self.mlp(self.concatenation([x, d]))
 
 def calculate_auc(model, test_x, test_d, test_y, config):
     AUC = tf.keras.metrics.AUC(num_thresholds=200)
     AUC.reset_states()
     x, d, y = pad_matrix(test_x, test_d, test_y, config)
-    x = tf.math.l2_normalize(x)
     pred = model(x, d)
     AUC.update_state(y, pred)
 
     return AUC.result().numpy()
 
-def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, learning_rate=0.001):
-    
+def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001):
+
     config = locals().copy()
     
     print("build model...")
@@ -49,12 +49,11 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
         progbar = tf.keras.utils.Progbar(num_batches)
         
         for i in random.sample(range(num_batches), num_batches):
-            batch_x = train_x[i * batch_size:(i+1) * batch_size]
-            batch_d = train_d[i * batch_size:(i+1) * batch_size]
-            batch_y = train_y[i * batch_size:(i+1) * batch_size]
+            batch_x = np.array(train_x[i * batch_size:(i+1) * batch_size])
+            batch_d = np.array(train_d[i * batch_size:(i+1) * batch_size])
+            batch_y = np.array(train_y[i * batch_size:(i+1) * batch_size])
             
             x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
-            x = tf.math.l2_normalize(x)
             
             with tf.GradientTape() as tape:
                 batch_cost = compute_loss(lr_model, x, d, y)
@@ -65,7 +64,7 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             progbar.add(1)
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(lr_model, test_x, test_d, test_y, config)
+        current_auc, true_y, pred_y = calculate_auc(lr_model, np.array(test_x), np.array(test_d), np.array(test_y), config)
         print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
@@ -153,7 +152,6 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
                 batch_y = train_y[t * batch_size:(t+1) * batch_size]
             
                 x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
-                x = tf.math.l2_normalize(x)
             
                 with tf.GradientTape() as tape:
                     batch_cost = compute_loss(lr_model, x, d, y)

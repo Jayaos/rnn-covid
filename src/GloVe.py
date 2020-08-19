@@ -17,15 +17,15 @@ class GloVe(tf.keras.Model):
     def initParams(self):
         with tf.device("/cpu:0"):
             """must be implemented with cpu-only env since this is sparse updating"""
-            self.target_embeddings = tf.Variable(tf.random.uniform([self.vocab_size, 
-            self.embedding_dim], 0.1, -0.1),
+            self.target_embeddings = tf.Variable(tf.random.normal([self.vocab_size, 
+            self.embedding_dim], 0, 0.01),
                                                  name="target_embeddings")
-            self.context_embeddings = tf.Variable(tf.random.uniform([self.vocab_size, 
-            self.embedding_dim], 0.1, -0.1),
+            self.context_embeddings = tf.Variable(tf.random.normal([self.vocab_size, 
+            self.embedding_dim], 0, 0.01),
                                                   name="context_embeddings")
-            self.target_biases = tf.Variable(tf.random.uniform([self.vocab_size], 0.1, -0.1),
+            self.target_biases = tf.Variable(tf.random.normal([self.vocab_size], 0, 0.01),
                                              name='target_biases')
-            self.context_biases = tf.Variable(tf.random.uniform([self.vocab_size], 0.1, -0.1),
+            self.context_biases = tf.Variable(tf.random.normal([self.vocab_size], 0, 0.01),
                                               name="context_biases")
     def sumEmbeddings(self):
         self.final_embeddings = self.target_embeddings + self.context_embeddings

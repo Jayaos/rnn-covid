@@ -17,8 +17,7 @@ class LogisticRegression(tf.keras.Model):
 
     def initParams(self, config):
         print("use randomly initialzed value...")
-        initializer = tf.keras.initializers.GlorotUniform()
-        self.embeddings = tf.Variable(initializer(shape=(config["input_vocabsize"], config["embedding_dim"])))
+        self.embeddings = tf.Variable(tf.random.normal([config["input_vocabsize"], config["embedding_dim"]], 0, 0.01))
         
     def loadParams(self, pretrained_emb):
         print("use pre-trained embeddings...")
@@ -154,8 +153,8 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
         print("build and initialize model...")
         lr_model = LogisticRegression(config)
         if pretrained_embedding != None:
-            pretrained_embedding = np.load(pretrained_embedding)
-            lr_model.loadParams(pretrained_embedding)
+            loaded_embedding = np.load(pretrained_embedding)
+            lr_model.loadParams(loaded_embedding)
         else:
             lr_model.initParams(config)
     
