@@ -73,7 +73,7 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
     
     print("load data...")
     recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
-    train_x, test_x, train_d, test_d, train_y, test_y = train_test_split(recs, demos, labels, test_size=0.2)
+    train_x, test_x, train_d, test_d, train_y, test_y = train_test_split(recs, demos, labels, test_size=0.3)
     # need to save splitted dataset
     num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
     

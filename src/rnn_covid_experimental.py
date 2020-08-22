@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import random
 import os
+import time
 from sklearn.model_selection import train_test_split
 
 class RNN(tf.keras.Model):
@@ -53,7 +54,8 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     return AUC.result().numpy()
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, 
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None):
+              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None,
+              measure_time=False):
     
     config = locals().copy()
     
@@ -80,9 +82,9 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
         progbar = tf.keras.utils.Progbar(num_batches)
         
         for i in random.sample(range(num_batches), num_batches):
-            batch_x = train_x[i * batch_size:(i+1) * batch_size]
-            batch_d = train_d[i * batch_size:(i+1) * batch_size]
-            batch_y = train_y[i * batch_size:(i+1) * batch_size]
+            batch_x = np.array(train_x[i * batch_size:(i+1) * batch_size])
+            batch_d = np.array(train_d[i * batch_size:(i+1) * batch_size])
+            batch_y = np.array(train_y[i * batch_size:(i+1) * batch_size])
             
             x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
             
@@ -95,7 +97,7 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
             progbar.add(1)
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
+        current_auc = calculate_auc(rnn_model, np.array(test_x), np.array(test_d), np.array(test_y), config)
         print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
@@ -103,6 +105,14 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
             best_model = rnn_model.get_weights()
 
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+    rnn_model.set_weights(best_model)
+
+    if measure_time:
+        entire_x, entire_d, entire_y = pad_matrix(np.array(recs), np.array(demos), np.array(labels), config)
+        start_time = time.time()
+        rnn_model(entire_x, entire_d)
+        end_time = time.time()
+        print("average time for prediction per patient: {}".format((end_time-start_time)/len(entire_y)))
 
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))

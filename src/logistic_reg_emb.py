@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import random
 import os
+import time
 from sklearn.model_selection import train_test_split
 
 class LogisticRegression(tf.keras.Model):
@@ -37,17 +38,19 @@ def calculate_auc(model, test_x, test_d, test_y, config):
 
     return AUC.result().numpy()
 
-def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, pretrained_embedding=None):
+def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, 
+    input_vocabsize, demo_vocabsize, embedding_dim, l2_reg=0.001, learning_rate=0.001, pretrained_embedding=None,
+    measure_time=False):
     
     config = locals().copy()
     
     print("build and initialize model...")
-    LR_model = LogisticRegression(config)
+    lr_model = LogisticRegression(config)
     if pretrained_embedding != None:
         pretrained_embedding = np.load(pretrained_embedding)
-        LR_model.loadParams(pretrained_embedding)
+        lr_model.loadParams(pretrained_embedding)
     else:
-        LR_model.initParams(config)
+        lr_model.initParams(config)
 
     print("load data...")
     recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
@@ -64,9 +67,9 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
         progbar = tf.keras.utils.Progbar(num_batches)
         
         for i in random.sample(range(num_batches), num_batches):
-            batch_x = train_x[i * batch_size:(i+1) * batch_size]
-            batch_d = train_d[i * batch_size:(i+1) * batch_size]
-            batch_y = train_y[i * batch_size:(i+1) * batch_size]
+            batch_x = np.array(train_x[i * batch_size:(i+1) * batch_size])
+            batch_d = np.array(train_d[i * batch_size:(i+1) * batch_size])
+            batch_y = np.array(train_y[i * batch_size:(i+1) * batch_size])
             
             x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
             
@@ -79,7 +82,7 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             progbar.add(1)
         
         print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(lr_model, test_x, test_d, test_y, config)
+        current_auc = calculate_auc(lr_model, np.array(test_x), np.array(test_d), np.array(test_y), config)
         print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
         if current_auc > best_auc: 
             best_auc = current_auc
@@ -87,6 +90,16 @@ def train_lreg(output_path, patient_record_path, demo_record_path, labels_path, 
             best_model = lr_model.get_weights()
 
     print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+
+    print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+    lr_model.set_weights(best_model)
+
+    if measure_time:
+        entire_x, entire_d, entire_y = pad_matrix(np.array(recs), np.array(demos), np.array(labels), config)
+        start_time = time.time()
+        lr_model(entire_x, entire_d)
+        end_time = time.time()
+        print("average time for prediction per patient: {}".format((end_time-start_time)/len(entire_y)))
 
 def compute_loss(model, x, d, label):
     prediction = model(x, d)
