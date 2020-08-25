@@ -12,7 +12,7 @@ class RNN(tf.keras.Model):
         self.embeddings = None
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
 
-        self.dropout = tf.keras.layers.Dropout(0.2)
+        self.dropout = tf.keras.layers.Dropout(0.3)
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
         self.gru = tf.keras.layers.GRU(units=config["gru_units"], return_sequences=True, return_state=True, name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
@@ -40,7 +40,7 @@ class RNN(tf.keras.Model):
 
 def compute_loss(model, x, d, label):
     prediction = model(x, d, training=True)
-    loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
+    loss_sum = tf.negative(tf.add( tf.multiply(5, tf.multiply(label, tf.math.log(prediction))), 
                                   tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
     return tf.reduce_mean(loss_sum)
 
@@ -52,6 +52,12 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     AUC.update_state(y, pred)
 
     return AUC.result().numpy()
+
+def get_predictions(model, test_x, test_d, test_y, config):
+    x, d, y = pad_matrix(test_x, test_d, test_y, config)
+    pred = model(x, d, training=False)
+
+    return pred, y
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, 
               input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, embedding_dim=256, pretrained_embedding=None,
@@ -113,6 +119,8 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
         rnn_model(entire_x, entire_d)
         end_time = time.time()
         print("average time for prediction per patient: {}".format((end_time-start_time)/len(entire_y)))
+    
+    return get_predictions(rnn_model, np.array(test_x), np.array(test_d), np.array(test_y), config)
 
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))

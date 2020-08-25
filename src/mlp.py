@@ -79,7 +79,7 @@ def train_MLP(output_path, patient_record_path, demo_record_path, labels_path, e
 
 def compute_loss(model, x, d, label):
     prediction = model(x, d)
-    loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
+    loss_sum = tf.negative(tf.add(tf.multiply(5, tf.multiply(label, tf.math.log(prediction))), 
                                   tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
     return tf.reduce_mean(loss_sum)
 
