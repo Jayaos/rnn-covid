@@ -228,3 +228,75 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
 
     print("save k-fold results...")
     np.save(os.path.join(output_path, "{k}_fold_auc.npy".format(k=k)), k_fold_auc)
+
+def train_rnn_kfold_return(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, hidden_units, embedding_dim,
+              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, k=5, pretrained_embedding=None):
+
+    config = locals().copy()
+
+    print("load data...")
+    recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
+
+    print("split the dataset into k-fold...")
+    recs, demos, labels = shuffle_data(recs, demos, labels)
+    chunk_size = int(np.floor(len(labels) / k))
+    np.split(np.arange(len(labels)), [chunk_size*i for i in range(k)])
+    folds = np.tile(np.split(np.arange(len(labels)), [chunk_size*i for i in range(int(k))])[1:], 2)
+
+    j = 0
+    train_x, valid_x, test_x = recs[np.concatenate(folds[(j%k):(j%k)+k-2])], recs[folds[(j%k)+k-1]], recs[folds[(j%k)+k]]
+    train_d, valid_d, test_d = demos[np.concatenate(folds[(j%k):(j%k)+k-2])], demos[folds[(j%k)+k-1]], demos[folds[(j%k)+k]]
+    train_y, valid_y, test_y = labels[np.concatenate(folds[(j%k):(j%k)+k-2])], labels[folds[(j%k)+k-1]], labels[folds[(j%k)+k]]
+
+    num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
+
+    print("build and initialize model...")
+    rnn_model = RNN(config)
+    if pretrained_embedding != None:
+        loaded_embedding = np.load(pretrained_embedding)
+        rnn_model.loadParams(loaded_embedding)
+    else:
+        rnn_model.initParams(config)
+    
+    best_auc = 0
+    best_epoch = 0
+    best_model = None
+    print("start training...")
+    for epoch in range(max_epoch):
+        loss_record = []
+        progbar = tf.keras.utils.Progbar(num_batches)
+        
+        for t in random.sample(range(num_batches), num_batches):
+            batch_x = train_x[t * batch_size:(t+1) * batch_size]
+            batch_d = train_d[t * batch_size:(t+1) * batch_size]
+            batch_y = train_y[t * batch_size:(t+1) * batch_size]
+            
+            x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
+            
+            with tf.GradientTape() as tape:
+                batch_cost = compute_loss(rnn_model, x, d, y)
+                gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
+                rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
+                
+            loss_record.append(batch_cost.numpy())
+            progbar.add(1)
+        
+        print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
+        current_auc = calculate_auc(rnn_model, valid_x, valid_d, valid_y, config)
+        print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
+        if current_auc > best_auc: 
+            best_auc = current_auc
+            best_epoch = epoch
+            best_model = rnn_model.get_weights()
+
+    print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+
+    print("calculate AUC on the best model using the test set")
+    rnn_model.set_weights(best_model)
+    test_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
+    print("test auc of a single fold: {auc:.6f}".format(auc=test_auc))
+
+    pred, true_y = get_predictions(rnn_model, test_x, test_d, test_y, config)
+
+    return test_x, test_d, pred, true_y
+

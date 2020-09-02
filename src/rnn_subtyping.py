@@ -45,7 +45,7 @@ class RNN(tf.keras.Model):
 
 def compute_loss(model, x, d, label):
     prediction = model(x, d, training=True)
-    loss_sum = tf.negative(tf.add(tf.multiply(label, tf.math.log(prediction)), 
+    loss_sum = tf.negative(tf.add( tf.multiply(5, tf.multiply(label, tf.math.log(prediction))), 
                                   tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
     return tf.reduce_mean(loss_sum)
 
@@ -59,7 +59,7 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     return AUC.result().numpy()
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, embedding_dim,
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, pretrained_embedding=None, generate_rep=False):
+              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, pretrained_embedding=None, generate_rep=False, generate_prediction=False):
 
     config = locals().copy()
     
@@ -117,6 +117,13 @@ def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, e
         intermediate_rep = rnn_model.generateRep(entire_x, entire_d)
         np.save(os.path.join(output_path, "patient_representation.npy"), intermediate_rep.numpy())
         print("save patient representation...")
+    
+    if generate_prediction:
+        print("generate prediction results...")
+        test_x_array, test_d_array, test_y_array = pad_matrix(np.array(test_x), np.array(test_d), np.array(test_y), config)
+        prediction = rnn_model(test_x_array, test_d_array, training=False)
+    
+    return test_x, test_d, test_y, prediction
 
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))

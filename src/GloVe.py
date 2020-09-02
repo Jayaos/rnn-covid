@@ -3,6 +3,7 @@ import tensorflow as tf
 import random
 import os
 import pickle
+import argparse
 
 class GloVe(tf.keras.Model):
     def __init__(self, config):
@@ -134,3 +135,23 @@ def load_data(data_path):
     my_data = pickle.load(open(data_path, 'rb'))
 
     return my_data
+
+def parse_arguments(parser):
+    parser.add_argument("--input_record", type=str, help="The path of training data: patient record")
+    parser.add_argument("--input_concept2id", type=str, help="The path of training data: concept2id")
+    parser.add_argument("--output", type=str, help="The path to output results")
+    parser.add_argument("--dim", type=int, default=128, help="The dimension of embeddings")
+    parser.add_argument("--max_vocab", type=int, default=100, help="The maximum vocabulary size")
+    parser.add_argument("--scaling_factor", type=float, default=0.75, help="The scaling factor")
+    parser.add_argument("--batch_size", type=int, default=51200, help="Training batch size")
+    parser.add_argument("--num_epochs", type=int, default=30, help="Training epochs")
+    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate for Adagrad optimizer")
+    parser.add_argument("--use_gpu", type=bool, default=True, help="Boolean to use gpu")
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    args = parse_arguments(parser)
+
+    train_glove(args.output, args.input_record, args.input_concept2id, args.num_epochs, args.batch_size, args.max_vocab, args.scaling_factor, args.learning_rate, args.dim, args.use_gpu)
