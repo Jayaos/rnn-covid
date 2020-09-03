@@ -25,3 +25,10 @@ The RNN model and baselines require patient records, demographic information of 
 ### To implement the baselines
 
 ### Pre-trained embedding with GloVe
+You need patient record and the mapping dictionary (i.e. concept2id) to obtain pre-trained embedding using GloVe. See hyperparameters using help.
+
+       python -m GloVe --help
+
+Example command:
+
+       python GloVe.py --input_record "input_path" --input_concept2id "input_path" --output_path "output_path" --num_epochs 30 --batch_size 51200 --max_vocab 100 --scaling_factor 0.75 --learning_rate 0.01 --dim 128 --use_gpu True
