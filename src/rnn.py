@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import random
 import os
+import argparse
 from sklearn.model_selection import train_test_split
 
 class RNN(tf.keras.Model):
@@ -11,7 +12,7 @@ class RNN(tf.keras.Model):
         self.embeddings = None
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
 
-        self.dropout = tf.keras.layers.Dropout(0.2)
+        self.dropout = tf.keras.layers.Dropout(config["dropout_rate"])
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
         self.gru = tf.keras.layers.GRU(units=config["gru_units"], return_sequences=True, return_state=True, name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
@@ -53,7 +54,7 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     return AUC.result().numpy()
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, embedding_dim,
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, pretrained_embedding=None):
+              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, dropout_rate=0.3 pretrained_embedding=None):
 
     config = locals().copy()
     
@@ -141,7 +142,7 @@ def shuffle_data(data1, data2, data3):
     return data1[idx], data2[idx], data3[idx]
 
 def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, hidden_units, embedding_dim,
-              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, k=5, pretrained_embedding=None):
+              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, dropout_rate=0.3, k=5, pretrained_embedding=None):
     k_fold_auc = []
 
     config = locals().copy()
@@ -211,3 +212,32 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
 
     print("save k-fold results...")
     np.save(os.path.join(output_path, "{k}_fold_auc.npy".format(k=k)), k_fold_auc)
+
+def parse_arguments(parser):
+    parser.add_argument("--input_record", type=str, help="The path of training data: patient record")
+    parser.add_argument("--input_demo", type=str, help="The path of training data: demographic information")
+    parser.add_argument("--input_label", type=str, help="The path of training data: patient label")
+    parser.add_argument("--output", type=str, help="The path to output results")
+    parser.add_argument("--max_epoch", type=int, default=20, help="The maximum number of epochs in each fold")
+    parser.add_argument("--batch_size", type=int, default=2, help="Training batch size")
+    parser.add_argument("--gru_units", type=int, default=2, help="Training batch size")
+    parser.add_argument("--hidden_units", type=int, default=2, help="Training batch size")
+    parser.add_argument("--embedding_dim", type=int, help="The dimension of embedding layer")
+    parser.add_argument("--inpute_vocabsize", type=int, help="The number of unique concepts in the training data")
+    parser.add_argument("--demo_vocabsize", type=int, help="The dimension of demographic vector")
+    parser.add_argument("--l2_reg", type=float, default=0.01, help="L2 regularization coefficient")
+    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate for Adam optimizer")
+    parser.add_argument("--dropout_rate", type=float, default=0.3, help="Dropout rate for dropout layer")
+    parser.add_argument("--k", type=int, default=5, help="k-fold")
+    parser.add_argument("--pretrained_embedding", type=str, default=None, help="The path of pretrained-embedding")
+
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    args = parse_arguments(parser)
+
+    train_rnn_kfold(args.output, args.input_record, args.input_demo, args.input_label, args.max_epoch,
+    args.batch_size, args.gru_units, args.hidden_units, args.embedding_dim, args.input_vocabsize, args.demo_vocabsize, 
+    args.l2_reg, args.learning_rate, args.dropout_rate, args.k, args.pretrained_embedding)

@@ -21,13 +21,19 @@ The RNN model and baselines require patient records, demographic information of 
 * Pre-trained embedding: Pre-trained embedding of medical concepts appeared in the data. This should be saved in numpy data format (.npy). We used [GloVe](https://nlp.stanford.edu/pubs/glove.pdf) for pre-trained embedding. You can implement models without preparing pre-trained embedding, but pre-trained embedding can improve models performance as described in the paper.
 
 ### To implement the RNN model
+An example command to implement the RNN model evaluated by 5-fold cross validation AUC is:
+
+        python rnn.py --input_record "input_path" --input_demo "input_path" --input_label "input_path"--output_path "output_path" --num_epochs 30 --batch_size 51200 --max_vocab 100 --scaling_factor 0.75 --learning_rate 0.01 --dim 128 --use_gpu True
+
+You can change hyperparameters (see the descriptions using help command!). The output is the .txt file that contains a list of calculated AUC of each fold. If you want to look up detailed output (e.g., patient vector or predicted risk score) use functions in rnn_experimental.py with your own modifications.
+
 
 ### To implement the baselines
 
 ### Pre-trained embedding with GloVe
 You need patient record and the mapping dictionary (i.e. concept2id) to obtain pre-trained embedding using GloVe. See hyperparameters using help.
 
-       python -m GloVe --help
+       python GloVe --help
 
 Example command:
 

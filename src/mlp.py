@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import random
 import os
+import argparse
 from sklearn.model_selection import train_test_split
 
 class MLP(tf.keras.Model):
@@ -30,7 +31,7 @@ def calculate_auc(model, test_x, test_d, test_y, config):
 
     return AUC.result().numpy()
 
-def train_MLP(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, hidden_units=1000, l2_reg=0.001, learning_rate=0.001):
+def train_mlp(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, input_vocabsize, demo_vocabsize, hidden_units=1000, l2_reg=0.001, learning_rate=0.001):
     
     config = locals().copy()
     
@@ -117,7 +118,7 @@ def shuffle_data(data1, data2, data3):
 
     return data1[idx], data2[idx], data3[idx]
 
-def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
+def train_mlp_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
                 input_vocabsize, demo_vocabsize, hidden_units=512, l2_reg=0.001, learning_rate=0.001, k=5):
     k_fold_auc = []
 
@@ -184,3 +185,27 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
 
     print("save k-fold results...")
     np.save(os.path.join(output_path, "MLP_{k}_fold_auc.npy".format(k=k)), k_fold_auc)
+
+def parse_arguments(parser):
+    parser.add_argument("--input_record", type=str, help="The path of training data: patient record")
+    parser.add_argument("--input_demo", type=str, help="The path of training data: demographic information")
+    parser.add_argument("--input_label", type=str, help="The path of training data: patient label")
+    parser.add_argument("--output", type=str, help="The path to output results")
+    parser.add_argument("--max_epoch", type=int, default=20, help="The maximum number of epochs in each fold")
+    parser.add_argument("--batch_size", type=int, default=2, help="Training batch size")
+    parser.add_argument("--inpute_vocabsize", type=int, help="The number of unique concepts in the training data")
+    parser.add_argument("--demo_vocabsize", type=int, help="The dimension of demographic vector")
+    parser.add_argument("--hidden_units", type=int, help="The number of hidden units in the hidden layer")
+    parser.add_argument("--l2_reg", type=float, default=0.01, help="L2 regularization coefficient")
+    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate for Adam optimizer")
+    parser.add_argument("--k", type=int, default=5, help="k-fold")
+
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    args = parse_arguments(parser)
+
+    train_mlp_kfold(args.output, args.input_record, args.input_demo, args.input_label, args.max_epoch,
+    args.batch_size, args.input_vocabsize, args.demo_vocabsize, args.hidden_units, args.l2_reg, args.learning_rate, args.k)
