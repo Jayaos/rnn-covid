@@ -23,12 +23,22 @@ The RNN model and baselines require patient records, demographic information of 
 ### To implement the RNN model
 An example command to implement the RNN model evaluated by 5-fold cross validation AUC is:
 
-        python rnn.py --input_record "input_path" --input_demo "input_path" --input_label "input_path"--output_path "output_path" --num_epochs 30 --batch_size 51200 --max_vocab 100 --scaling_factor 0.75 --learning_rate 0.01 --dim 128 --use_gpu True
+        python rnn.py --input_record "input_path" --input_demo "input_path" --input_label "input_path" --output_path "output_path" --max_epoch 20 --batch_size 2 --gru_units 128 --hidden_units 100 --embedding_dim 128 --input_vocabsize 6280 --demo_vocabsize 3 --l2_reg 0.01 --learning_rate 0.01 --dropout_rate 0.3 --k 5
 
-You can change hyperparameters (see the descriptions using help command!). The output is the .txt file that contains a list of calculated AUC of each fold. If you want to look up detailed output (e.g., patient vector or predicted risk score) use functions in rnn_experimental.py with your own modifications.
-
+You can change hyperparameter setting (see the descriptions using help command!). The output is the .txt file that contains a list of calculated AUC of each fold. If you want to look up detailed output (e.g., patient vector or predicted risk score) use functions in rnn_experimental.py with your own modifications.
 
 ### To implement the baselines
+Example commands to implement the baselines evaluated by 5-fold cross validation AUC are:
+
+        python logistic_reg.py --input_record "input_path" --input_demo "input_path" --input_label "input_path" --output_path "output_path" --max_epoch 20 --batch_size 2 --input_vocabsize 6280 --demo_vocabsize 3 --l2_reg 0.01 --learning_rate 0.01 --k 5
+
+        python mlp.py --input_record "input_path" --input_demo "input_path" --input_label "input_path"--output_path "output_path" --max_epoch 20 --batch_size 2 --input_vocabsize 6280 --demo_vocabsize 3 --hidden_units 1000 --l2_reg 0.01 --learning_rate 0.01 --k 5
+
+To implement the baselines (with embedding layer) evaluated by 5-fold cross validation AUC are:
+
+        python logistic_reg_emb.py --input_record "input_path" --input_demo "input_path" --input_label "input_path" --output_path "output_path" --max_epoch 20 --batch_size 2 --input_vocabsize 6280 --demo_vocabsize 3 --embedding_dim 128 --l2_reg 0.01 --learning_rate 0.01 --k 5 --pretrained_embedding "path of pretrained embedding if provided"
+
+        python mlp_emb.py --input_record "input_path" --input_demo "input_path" --input_label "input_path"--output_path "output_path" --max_epoch 20 --batch_size 2 --input_vocabsize 6280 --demo_vocabsize 3 --embedding_dim 128 --hidden_units 1000 --l2_reg 0.01 --learning_rate 0.01 --k 5 --pretrained_embedding "path of pretrained embedding if provided"
 
 ### Pre-trained embedding with GloVe
 You need patient record and the mapping dictionary (i.e. concept2id) to obtain pre-trained embedding using GloVe. See hyperparameters using help.
