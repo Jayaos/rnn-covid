@@ -4,7 +4,7 @@ This repository contains source codes for implementing models and reproducing th
 
     Severity Prediction for COVID-19 Patients via Recurrent Neural Networks
         Junghwan Lee, Casey Ta, Jae Hyun Kim, Cong Liu, Chunhua Weng
-        medRxiv 2020.08.28.20184200; doi: https://doi.org/10.1101/2020.08.28.20184200
+        AMIA Informatics Summit 2021, https://doi.org/10.1101/2020.08.28.20184200
 
 ### Installation
 The source codes were written in Python 3.7.1.

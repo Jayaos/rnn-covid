@@ -14,7 +14,7 @@ class RNN(tf.keras.Model):
 
         self.dropout = tf.keras.layers.Dropout(config["dropout_rate"])
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
-        self.gru = tf.keras.layers.GRU(units=config["gru_units"], return_sequences=True, return_state=True, name="gru")
+        self.gru = tf.keras.layers.GRU(units=config["gru_units"], name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
         self.mlp1 = tf.keras.layers.Dense(config["hidden_units"], activation=tf.keras.activations.tanh, name="mlp1", 
         kernel_regularizer=tf.keras.regularizers.L2(l2=config["l2_reg"]))
@@ -32,9 +32,8 @@ class RNN(tf.keras.Model):
     def call(self, x, d, training):
         x = tf.matmul(x, self.embeddings)
         x = self.masking_layer(x)
-        sequences, x = self.gru(x)
-        if training:
-            x = self.dropout(x)
+        x = self.dropout(x, training)
+        x = self.gru(x)
         x = self.mlp1(self.concatenation([x, d]))
         return self.mlp2(x)
 
@@ -54,7 +53,7 @@ def calculate_auc(model, test_x, test_d, test_y, config):
     return AUC.result().numpy()
 
 def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, embedding_dim,
-              input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, dropout_rate=0.3 pretrained_embedding=None):
+            input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, dropout_rate=0.3, pretrained_embedding=None):
 
     config = locals().copy()
     
