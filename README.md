@@ -49,5 +49,5 @@ Example command:
 
        python GloVe.py --input_record "input_path" --input_concept2id "input_path" --output_path "output_path" --num_epochs 30 --batch_size 51200 --max_vocab 100 --scaling_factor 0.75 --learning_rate 0.01 --dim 128 --use_gpu True
 
-### Pre-trained embedding with GloVe
+### Supplementary Material
 Supplementary material for the paper is available at the [archived paper](https://www.medrxiv.org/content/10.1101/2020.08.28.20184200v1).:
