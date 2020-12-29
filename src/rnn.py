@@ -3,16 +3,13 @@ import numpy as np
 import pickle
 import random
 import os
-import argparse
-from sklearn.model_selection import train_test_split
+import time
 
 class RNN(tf.keras.Model):
     def __init__(self, config):
         super(RNN, self).__init__()
         self.embeddings = None
         self.optimizer = tf.keras.optimizers.Adam(config["learning_rate"])
-
-        self.dropout = tf.keras.layers.Dropout(config["dropout_rate"])
         self.masking_layer = tf.keras.layers.Masking(mask_value=0.0, name="masking_layer")
         self.gru = tf.keras.layers.GRU(units=config["gru_units"], name="gru")
         self.concatenation = tf.keras.layers.Concatenate(axis=1, name="concatenation")
@@ -23,7 +20,7 @@ class RNN(tf.keras.Model):
         
     def initParams(self, config):
         print("use randomly initialzed value...")
-        self.embeddings = tf.Variable(tf.random.normal([config["input_vocabsize"], config["embedding_dim"]], 0, 0.01))      
+        self.embeddings = tf.Variable(tf.random.normal([config["input_vocabsize"], config["embedding_dim"]], 0, 0.01))   
    
     def loadParams(self, pretrained_emb):
         print("use pre-trained embeddings...")
@@ -32,13 +29,12 @@ class RNN(tf.keras.Model):
     def call(self, x, d, training):
         x = tf.matmul(x, self.embeddings)
         x = self.masking_layer(x)
-        x = self.dropout(x, training)
         x = self.gru(x)
         x = self.mlp1(self.concatenation([x, d]))
         return self.mlp2(x)
 
-def compute_loss(model, x, d, label):
-    prediction = model(x, d, training=True)
+def compute_loss(model, x, d, label, training):
+    prediction = model(x, d, training)
     loss_sum = tf.negative(tf.add(tf.multiply(5, tf.multiply(label, tf.math.log(prediction))), 
                                   tf.multiply(tf.subtract(1., label), tf.math.log(tf.subtract(1., prediction)))))
     return tf.reduce_mean(loss_sum)
@@ -52,65 +48,16 @@ def calculate_auc(model, test_x, test_d, test_y, config):
 
     return AUC.result().numpy()
 
-def train_rnn(output_path, patient_record_path, demo_record_path, labels_path, epochs, batch_size, gru_units, hidden_units, embedding_dim,
-            input_vocabsize, demo_vocabsize, l2_reg=0.01, learning_rate=0.001, dropout_rate=0.3, pretrained_embedding=None):
-
-    config = locals().copy()
-    
-    print("build and initialize model...")
-    rnn_model = RNN(config)
-    if pretrained_embedding != None:
-        loaded_embedding = np.load(pretrained_embedding)
-        rnn_model.loadParams(loaded_embedding)
-    else:
-        rnn_model.initParams(config)
-    
-    print("load data...")
-    recs, demos, labels = load_data(patient_record_path, demo_record_path, labels_path)
-    train_x, test_x, train_d, test_d, train_y, test_y = train_test_split(recs, demos, labels, test_size=0.2)
-    # need to save splitted dataset
-    num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
-    
-    best_auc = 0
-    best_epoch = 0
-    best_model = None
-    print("start training...")
-    for epoch in range(epochs):
-        loss_record = []
-        progbar = tf.keras.utils.Progbar(num_batches)
-        
-        for i in random.sample(range(num_batches), num_batches):
-            batch_x = train_x[i * batch_size:(i+1) * batch_size]
-            batch_d = train_d[i * batch_size:(i+1) * batch_size]
-            batch_y = train_y[i * batch_size:(i+1) * batch_size]
-            
-            x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
-            
-            with tf.GradientTape() as tape:
-                batch_cost = compute_loss(rnn_model, x, d, y)
-                gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
-                rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
-                
-            loss_record.append(batch_cost.numpy())
-            progbar.add(1)
-        
-        print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
-        current_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
-        print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
-        if current_auc > best_auc: 
-            best_auc = current_auc
-            best_epoch = epoch
-            best_model = rnn_model.get_weights()
-    print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
-
-    return rnn_model.set_weights(best_model)
-
 def load_data(patient_record_path, demo_record_path, labels_path):
     patient_record = pickle.load(open(patient_record_path, 'rb'))
     demo_record = pickle.load(open(demo_record_path, 'rb'))
     labels = pickle.load(open(labels_path, 'rb'))
     
     return patient_record, demo_record, labels
+
+def save_data(output_path, mydata):
+    with open(output_path, 'wb') as f:
+        pickle.dump(mydata, f)
 
 def pad_matrix(records, demos, labels, config):
     n_patients = len(records)
@@ -140,9 +87,13 @@ def shuffle_data(data1, data2, data3):
 
     return data1[idx], data2[idx], data3[idx]
 
+def load_pkl_data(data_path):
+    mydata = pickle.load(open(data_path, 'rb'))
+    
+    return mydata
+
 def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size, gru_units, hidden_units, embedding_dim,
-              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.001, dropout_rate=0.3, k=5, pretrained_embedding=None):
-    k_fold_auc = []
+              input_vocabsize, demo_vocabsize, l2_reg=0.001, learning_rate=0.00001, k=5, pretrained_embedding=None):
 
     config = locals().copy()
 
@@ -155,14 +106,22 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
     np.split(np.arange(len(labels)), [chunk_size*i for i in range(k)])
     folds = np.tile(np.split(np.arange(len(labels)), [chunk_size*i for i in range(int(k))])[1:], 2)
 
+    k_fold_auc = []
+    k_fold_training_loss = []
+    k_fold_validation_auc = []
+    time_elapsed = []
+
     for i in range(k):
+        start_time = time.time()
         train_x, valid_x, test_x = recs[np.concatenate(folds[(i%k):(i%k)+k-2])], recs[folds[(i%k)+k-1]], recs[folds[(i%k)+k]]
         train_d, valid_d, test_d = demos[np.concatenate(folds[(i%k):(i%k)+k-2])], demos[folds[(i%k)+k-1]], demos[folds[(i%k)+k]]
         train_y, valid_y, test_y = labels[np.concatenate(folds[(i%k):(i%k)+k-2])], labels[folds[(i%k)+k-1]], labels[folds[(i%k)+k]]
 
         num_batches = int(np.ceil(float(len(train_x)) / float(batch_size)))
+        training_loss = []
+        validation_auc = []
 
-        print("build and initialize model...")
+        print("build and initialize model for {k}th fold...".format(k=i+1))
         rnn_model = RNN(config)
         if pretrained_embedding != None:
             loaded_embedding = np.load(pretrained_embedding)
@@ -186,57 +145,44 @@ def train_rnn_kfold(output_path, patient_record_path, demo_record_path, labels_p
                 x, d, y = pad_matrix(batch_x, batch_d, batch_y, config)
             
                 with tf.GradientTape() as tape:
-                    batch_cost = compute_loss(rnn_model, x, d, y)
-                    gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
-                    rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
+                    batch_cost = compute_loss(rnn_model, x, d, y, training=True)
+                gradients = tape.gradient(batch_cost, rnn_model.trainable_variables)
+                rnn_model.optimizer.apply_gradients(zip(gradients, rnn_model.trainable_variables))
                 
                 loss_record.append(batch_cost.numpy())
                 progbar.add(1)
         
-            print('epoch:{e}, mean loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
+            print('epoch:{e}, training loss:{l:.6f}'.format(e=epoch+1, l=np.mean(loss_record)))
+            training_loss.append(np.mean(loss_record))
             current_auc = calculate_auc(rnn_model, valid_x, valid_d, valid_y, config)
-            print('epoch:{e}, model auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
+            print('epoch:{e}, validation auc:{l:.6f}'.format(e=epoch+1, l=current_auc))
+            validation_auc.append(current_auc)
             if current_auc > best_auc: 
                 best_auc = current_auc
-                best_epoch = epoch
+                best_epoch = epoch+1
                 best_model = rnn_model.get_weights()
 
-        print('Best model: at epoch {e}, best model auc:{l:.6f}'.format(e=best_epoch, l=best_auc))
+        end_time = time.time()
+        time_elapsed.append(end_time - start_time)
+        print("{t:.6f} seconds for training {k}th fold".format(t=end_time-start_time, k=i+1))
 
-        print("calculate AUC on the best model using the test set")
+        print('Best model of {k}th fold: at epoch {e}, best model validation loss:{l:.6f}'.format(k=i+1, e=best_epoch, l=best_auc))
+        k_fold_training_loss.append(training_loss)
+        k_fold_validation_auc.append(validation_auc)
+
+        print("calculate AUC using the best model on the test set")
         rnn_model.set_weights(best_model)
         test_auc = calculate_auc(rnn_model, test_x, test_d, test_y, config)
-        print("test auc of {k} fold: {auc:.6f}".format(k=i, auc=test_auc))
+        print("AUC of {k}th fold: {auc:.6f}".format(k=i+1, auc=test_auc))
         k_fold_auc.append(test_auc)
 
-    print("save k-fold results...")
-    np.save(os.path.join(output_path, "{k}_fold_auc.npy".format(k=k)), k_fold_auc)
-
-def parse_arguments(parser):
-    parser.add_argument("--input_record", type=str, help="The path of training data: patient record")
-    parser.add_argument("--input_demo", type=str, help="The path of training data: demographic information")
-    parser.add_argument("--input_label", type=str, help="The path of training data: patient label")
-    parser.add_argument("--output", type=str, help="The path to output results")
-    parser.add_argument("--max_epoch", type=int, default=20, help="The maximum number of epochs in each fold")
-    parser.add_argument("--batch_size", type=int, default=2, help="Training batch size")
-    parser.add_argument("--gru_units", type=int, default=2, help="Training batch size")
-    parser.add_argument("--hidden_units", type=int, default=2, help="Training batch size")
-    parser.add_argument("--embedding_dim", type=int, help="The dimension of embedding layer")
-    parser.add_argument("--inpute_vocabsize", type=int, help="The number of unique concepts in the training data")
-    parser.add_argument("--demo_vocabsize", type=int, help="The dimension of demographic vector")
-    parser.add_argument("--l2_reg", type=float, default=0.01, help="L2 regularization coefficient")
-    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate for Adam optimizer")
-    parser.add_argument("--dropout_rate", type=float, default=0.3, help="Dropout rate for dropout layer")
-    parser.add_argument("--k", type=int, default=5, help="k-fold")
-    parser.add_argument("--pretrained_embedding", type=str, default=None, help="The path of pretrained-embedding")
-
-    args = parser.parse_args()
-    return args
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    args = parse_arguments(parser)
-
-    train_rnn_kfold(args.output, args.input_record, args.input_demo, args.input_label, args.max_epoch,
-    args.batch_size, args.gru_units, args.hidden_units, args.embedding_dim, args.input_vocabsize, args.demo_vocabsize, 
-    args.l2_reg, args.learning_rate, args.dropout_rate, args.k, args.pretrained_embedding)
+    print("saving k-fold results...")
+    if pretrained_embedding != None:
+        mode_name = "preemb"
+    else:
+        mode_name = "emb"
+    np.save(os.path.join(output_path, "RNN_{m}_{k}fold_l{l}_training_loss.npy".format(k=k, m=mode_name, l=learning_rate)), k_fold_training_loss)
+    np.save(os.path.join(output_path, "RNN_{m}_{k}fold_l{l}_validation_auc.npy".format(k=k, m=mode_name, l=learning_rate)), k_fold_validation_auc)
+    np.save(os.path.join(output_path, "RNN_{m}_{k}fold_l{l}_auc.npy".format(k=k, m=mode_name, l=learning_rate)), k_fold_auc)
+    np.save(os.path.join(output_path, "RNN_{m}_{k}fold_l{l}_time.npy".format(k=k, m=mode_name, l=learning_rate)), time_elapsed)
+    save_data(os.path.join(output_path, "RNN_{m}_{k}fold_l{l}_config.pkl".format(k=k, m=mode_name, l=learning_rate)), config)
