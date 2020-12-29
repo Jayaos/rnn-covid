@@ -89,7 +89,7 @@ def unit_normalization(myarray):
     std = tf.reshape(tf.math.reduce_std(myarray, axis=-1), shape=(myarray.shape[0], 1))
     return tf.math.divide(tf.math.subtract(myarray, avg), std)
 
-def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
+def train_lr_kfold(output_path, patient_record_path, demo_record_path, labels_path, max_epoch, batch_size,
                 input_vocabsize, demo_vocabsize, embedding_dim, l2_reg=0.001, learning_rate=0.00001, k=5, pretrained_embedding=None):
 
     config = locals().copy()
@@ -185,19 +185,20 @@ def train_lreg_kfold(output_path, patient_record_path, demo_record_path, labels_
     save_data(os.path.join(output_path, "LR_{m}_{k}fold_l{l}_config.pkl".format(k=k, m=mode_name, l=learning_rate)), config)
     
 def parse_arguments(parser):
-    parser.add_argument("--input_record", type=str, help="The path of training data: patient record")
-    parser.add_argument("--input_demo", type=str, help="The path of training data: demographic information")
-    parser.add_argument("--input_label", type=str, help="The path of training data: patient label")
-    parser.add_argument("--output", type=str, help="The path to output results")
-    parser.add_argument("--max_epoch", type=int, default=20, help="The maximum number of epochs in each fold")
-    parser.add_argument("--batch_size", type=int, default=2, help="Training batch size")
-    parser.add_argument("--inpute_vocabsize", type=int, help="The number of unique concepts in the training data")
-    parser.add_argument("--demo_vocabsize", type=int, help="The dimension of demographic vector")
-    parser.add_argument("--embedding_dim", type=int, help="The dimension of embedding layer")
-    parser.add_argument("--l2_reg", type=float, default=0.01, help="L2 regularization coefficient")
-    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate for Adam optimizer")
+    parser.add_argument("--output_path", type=str, help="the path to output results")
+    parser.add_argument("--input_record", type=str, help="the path of training data: patient record")
+    parser.add_argument("--input_demo", type=str, help="the path of training data: demographic information")
+    parser.add_argument("--input_label", type=str, help="the path of training data: patient label")
+    parser.add_argument("--max_epoch", type=int, help="the maximum number of epochs in each fold")
+    parser.add_argument("--batch_size", type=int, help="training batch size")
+    parser.add_argument("--input_vocabsize", type=int, help="the number of unique concepts in the data")
+    parser.add_argument("--demo_vocabsize", type=int, help="dimensionality of demographic information vector")
+    parser.add_argument("--hidden_units", type=int, help="the number of hidden units in the hidden layer")
+    parser.add_argument("--embedding_dim", type=int, help="dimensionality of the embedding")
+    parser.add_argument("--l2_reg", type=float, default=0.001, help="L2 regularization coefficient")
+    parser.add_argument("--learning_rate", type=float, default=0.00001, help="learning rate for the optimizer")
     parser.add_argument("--k", type=int, default=5, help="k-fold")
-    parser.add_argument("--pretrained_embedding", type=str, default=None, help="The path of pretrained-embedding")
+    parser.add_argument("--pretrained_embedding", type=str, default=None, help="the path of pretrained embedding")
 
     args = parser.parse_args()
     return args
@@ -206,6 +207,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     args = parse_arguments(parser)
 
-    train_lreg_kfold(args.output, args.input_record, args.input_demo, args.input_label, args.max_epoch,
+    train_lr_kfold(args.output_path, args.input_record, args.input_demo, args.input_label, args.max_epoch,
     args.batch_size, args.input_vocabsize, args.demo_vocabsize, args.embedding_dim, args.l2_reg, 
     args.learning_rate, args.k, args.pretrained_embedding)
